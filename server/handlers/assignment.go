@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"server/models"
 	"strconv"
@@ -492,6 +493,22 @@ func GetClassStudents(db *gorm.DB) gin.HandlerFunc {
 // GetClassStatistics 获取班级统计信息
 func GetClassStatistics(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		classId := c.Query("classId")
+
+		// 如果提供了classId，只获取指定班级的统计信息
+		if classId != "" {
+			var class models.Class
+			if err := db.First(&class, classId).Error; err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Class not found"})
+				return
+			}
+
+			statistics := calculateClassStatistics(db, class)
+			c.JSON(http.StatusOK, statistics)
+			return
+		}
+
+		// 否则获取所有班级的统计信息
 		var classes []models.Class
 		if err := db.Find(&classes).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch classes"})
@@ -500,20 +517,8 @@ func GetClassStatistics(db *gorm.DB) gin.HandlerFunc {
 
 		var statistics []gin.H
 		for _, class := range classes {
-			// 获取学生数量
-			var studentCount int64
-			db.Model(&models.User{}).Where("class_id = ? AND role = 1", class.ID).Count(&studentCount)
-
-			// 获取平均分、及格率等统计信息（这里使用模拟数据）
-			// 实际项目中应该从考试结果表中计算
-			statistics = append(statistics, gin.H{
-				"classId":       class.ID,
-				"className":     class.Name,
-				"studentCount":  studentCount,
-				"avgScore":      0,    // 需要实际计算
-				"passRate":      "0%", // 需要实际计算
-				"excellentRate": "0%", // 需要实际计算
-			})
+			classStats := calculateClassStatistics(db, class)
+			statistics = append(statistics, classStats)
 		}
 
 		// 确保返回空数组而不是null
@@ -522,5 +527,114 @@ func GetClassStatistics(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, statistics)
+	}
+}
+
+// calculateClassStatistics 计算单个班级的统计信息
+func calculateClassStatistics(db *gorm.DB, class models.Class) gin.H {
+	// 获取学生数量
+	var studentCount int64
+	db.Model(&models.User{}).Where("class_id = ? AND role = 1", class.ID).Count(&studentCount)
+
+	// 如果没有学生，返回默认值
+	if studentCount == 0 {
+		return gin.H{
+			"classId":       class.ID,
+			"className":     class.Name,
+			"studentCount":  0,
+			"avgScore":      0,
+			"passRate":      "0%",
+			"excellentRate": "0%",
+			"examCount":     0,
+		}
+	}
+
+	// 获取班级学生ID列表
+	var students []models.User
+	db.Where("class_id = ? AND role = 1", class.ID).Find(&students)
+
+	var studentIds []uint
+	for _, student := range students {
+		studentIds = append(studentIds, student.ID)
+	}
+
+	// 获取班级相关的考试分配
+	var examAssignments []models.ExamAssignment
+	db.Where("class_id = ?", class.ID).Find(&examAssignments)
+
+	var assignmentIds []uint
+	for _, assignment := range examAssignments {
+		assignmentIds = append(assignmentIds, assignment.ID)
+	}
+
+	// 如果没有考试分配，返回默认值
+	if len(assignmentIds) == 0 {
+		return gin.H{
+			"classId":       class.ID,
+			"className":     class.Name,
+			"studentCount":  studentCount,
+			"avgScore":      0,
+			"passRate":      "0%",
+			"excellentRate": "0%",
+			"examCount":     0,
+		}
+	}
+
+	// 获取班级学生的考试结果
+	var examResults []models.ExamResult
+	db.Where("exam_assignment_id IN ? AND student_id IN ?", assignmentIds, studentIds).Find(&examResults)
+
+	// 如果没有考试结果，返回默认值
+	if len(examResults) == 0 {
+		return gin.H{
+			"classId":       class.ID,
+			"className":     class.Name,
+			"studentCount":  studentCount,
+			"avgScore":      0,
+			"passRate":      "0%",
+			"excellentRate": "0%",
+			"examCount":     len(assignmentIds),
+		}
+	}
+
+	// 计算统计数据
+	var totalScore int
+	var passCount int
+	var excellentCount int
+
+	for _, result := range examResults {
+		totalScore += result.Score
+
+		// 获取对应的考试分配以获取及格分数
+		var assignment models.ExamAssignment
+		db.First(&assignment, result.ExamAssignmentID)
+
+		if result.Score >= assignment.PassScore {
+			passCount++
+		}
+
+		// 优秀率：分数达到总分90%以上
+		if assignment.ExamID > 0 {
+			var exam models.Exam
+			db.First(&exam, assignment.ExamID)
+			excellentThreshold := exam.TotalScore * 9 / 10 // 90%
+			if result.Score >= excellentThreshold {
+				excellentCount++
+			}
+		}
+	}
+
+	avgScore := float64(totalScore) / float64(len(examResults))
+	passRate := float64(passCount) / float64(len(examResults)) * 100
+	excellentRate := float64(excellentCount) / float64(len(examResults)) * 100
+
+	return gin.H{
+		"classId":       class.ID,
+		"className":     class.Name,
+		"studentCount":  studentCount,
+		"avgScore":      avgScore,
+		"passRate":      fmt.Sprintf("%.1f%%", passRate),
+		"excellentRate": fmt.Sprintf("%.1f%%", excellentRate),
+		"examCount":     len(assignmentIds),
 	}
 }

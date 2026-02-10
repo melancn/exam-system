@@ -59,14 +59,13 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { studentAPI } from '@/services/api'
-import config from '@/config'
 import { examProgressSync } from '@/utils/sync'
-
-// WebSocket连接
-let ws = null
-let timerInterval = null
-let reconnectAttempts = 0
-let reconnectTimer = null
+import { 
+  sendWebSocketMessage, 
+  registerMessageHandler, 
+  removeMessageHandler, 
+  getWebSocketStatus 
+} from '@/composables/useWebSocket'
 
 const route = useRoute()
 const router = useRouter()
@@ -83,7 +82,7 @@ const answers = ref([])
 const remainingTime = ref(0)
 const timer = ref(null)
 const submitting = ref(false)
-const isWebSocketConnected = ref(false)
+const isWebSocketConnected = getWebSocketStatus()
 const isSyncing = ref(false)
 
 const totalTime = computed(() => examInfo.value.duration * 60) // 转换为秒
@@ -135,7 +134,7 @@ const startTimer = () => {
     if (remainingTime.value > 0) {
       remainingTime.value--
       // 每10秒更新一次WebSocket时间
-      if (remainingTime.value % 10 === 0 && ws) {
+      if (remainingTime.value % 10 === 0) {
         sendTimeUpdate()
       }
     } else {
@@ -144,102 +143,49 @@ const startTimer = () => {
   }, 1000)
 }
 
-// 初始化WebSocket连接
-const initWebSocket = () => {
-  const token = localStorage.getItem('token')
-  if (!token) return
-
-  const wsUrl = `${config.websocket.baseURL}${config.websocket.endpoint}`
-  console.log('连接WebSocket:', wsUrl)
+// 注册WebSocket消息处理器
+const examMessageHandler = (data) => {
+  console.log('考试页面收到WebSocket消息:', data)
   
-  ws = new WebSocket(wsUrl)
-
-  ws.onopen = () => {
-    console.log('WebSocket连接已建立')
-    isWebSocketConnected.value = true
-    reconnectAttempts = 0 // 重置重连次数
-    
-    // 发送认证消息
-    const authMessage = {
-      type: 'auth',
-      token: token
-    }
-    ws.send(JSON.stringify(authMessage))
-  }
-
-  ws.onmessage = (event) => {
-    const data = JSON.parse(event.data)
-    console.log('收到服务器消息:', data)
-    
-    // 处理认证成功消息
-    if (data.type === 'auth_success') {
-      console.log('WebSocket认证成功')
+  switch (data.type) {
+    case 'auth_success':
+      console.log('考试页面WebSocket认证成功')
       // 发送开始计时消息
       sendTimerStart()
-    }
+      break
+    case 'pause':
+      ElMessage.warning('考试已被教师暂停')
+      break
+    case 'resume':
+      ElMessage.success('考试已被教师恢复')
+      break
   }
-
-  ws.onerror = (error) => {
-    console.error('WebSocket错误:', error)
-    isWebSocketConnected.value = false
-  }
-
-  ws.onclose = () => {
-    console.log('WebSocket连接已关闭')
-    isWebSocketConnected.value = false
-    // 尝试重连
-    attemptReconnect()
-  }
-}
-
-// 尝试重连WebSocket
-const attemptReconnect = () => {
-  if (reconnectAttempts >= config.websocket.maxReconnectAttempts) {
-    console.warn('达到最大重连次数，停止重连')
-    return
-  }
-
-  reconnectAttempts++
-  console.log(`尝试重连WebSocket (${reconnectAttempts}/${config.websocket.maxReconnectAttempts})`)
-  
-  reconnectTimer = setTimeout(() => {
-    initWebSocket()
-  }, config.websocket.reconnectInterval)
 }
 
 // 发送开始计时消息
 const sendTimerStart = () => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    const message = {
-      type: 'start',
-      examId: examInfo.value.id
-    }
-    ws.send(JSON.stringify(message))
-  }
+  sendWebSocketMessage({
+    type: 'start',
+    examId: examInfo.value.id
+  })
 }
 
 // 发送时间更新消息
 const sendTimeUpdate = () => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    const message = {
-      type: 'update',
-      examId: examInfo.value.id,
-      timeUsed: Math.floor((totalTime.value - remainingTime.value) / 60)
-    }
-    ws.send(JSON.stringify(message))
-  }
+  sendWebSocketMessage({
+    type: 'update',
+    examId: examInfo.value.id,
+    timeUsed: Math.floor((totalTime.value - remainingTime.value) / 60)
+  })
 }
 
 // 发送结束计时消息
 const sendTimerEnd = () => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    const message = {
-      type: 'end',
-      examId: examInfo.value.id,
-      timeUsed: Math.floor((totalTime.value - remainingTime.value) / 60)
-    }
-    ws.send(JSON.stringify(message))
-  }
+  sendWebSocketMessage({
+    type: 'end',
+    examId: examInfo.value.id,
+    timeUsed: Math.floor((totalTime.value - remainingTime.value) / 60)
+  })
 }
 
 const saveProgress = () => {
@@ -290,6 +236,9 @@ const submitExam = async (autoSubmit = false) => {
 
 onMounted(async () => {
   try {
+    // 注册WebSocket消息处理器
+    registerMessageHandler('exam', examMessageHandler)
+    
     // 尝试从API获取试卷数据
     const response = await studentAPI.getExamDetails(examInfo.value.id)
     
@@ -312,8 +261,6 @@ onMounted(async () => {
       }
       
       startTimer()
-      // 初始化WebSocket连接
-      initWebSocket()
     } else {
       ElMessage.error('试卷不存在')
       router.push('/student/exam-list')
@@ -338,6 +285,8 @@ onUnmounted(() => {
   if (timer.value) {
     clearInterval(timer.value)
   }
+  // 移除WebSocket消息处理器
+  removeMessageHandler('exam')
 })
 </script>
 

@@ -105,6 +105,11 @@ const routes = [
         component: () => import('@/views/teacher/ResultsAnalysis.vue')
       },
       {
+        path: 'broadcast-message',
+        name: 'BroadcastMessage',
+        component: () => import('@/views/teacher/BroadcastMessage.vue')
+      },
+      {
         path: 'login-logs',
         name: 'LoginLogs',
         component: () => import('@/views/teacher/LoginLogs.vue')

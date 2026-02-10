@@ -5,6 +5,14 @@
         <div class="header-content">
           <h2>考试系统 - 教师端</h2>
           <div class="user-info">
+            <div class="websocket-status">
+              <el-tag :type="websocketStore.isWebSocketConnected ? 'success' : 'danger'" size="small">
+                实时数据: {{ websocketStore.isWebSocketConnected ? '已连接' : '已断开' }}
+              </el-tag>
+              <el-tag :type="websocketStore.isRealTimeConnected ? 'success' : 'danger'" size="small">
+                考试监控: {{ websocketStore.isRealTimeConnected ? '已连接' : '已断开' }}
+              </el-tag>
+            </div>
             <span>欢迎，{{ userStore.userInfo?.name }} 老师</span>
             <el-button type="primary" text @click="handleLogout">退出登录</el-button>
           </div>
@@ -56,6 +64,10 @@
                 <el-icon><DataAnalysis /></el-icon>
                 <span>考试结果分析</span>
               </el-menu-item>
+              <el-menu-item index="/teacher/broadcast-message">
+                <el-icon><Bell /></el-icon>
+                <span>广播消息</span>
+              </el-menu-item>
               <el-menu-item index="/teacher/login-logs">
                 <el-icon><Document /></el-icon>
                 <span>登录日志</span>
@@ -99,14 +111,16 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { User, OfficeBuilding, Tickets, Document, Edit, DataAnalysis, Setting, Menu, Fold, Expand } from '@element-plus/icons-vue'
+import { useWebSocketStore } from '@/stores/websocket'
+import { User, OfficeBuilding, Tickets, Document, Edit, DataAnalysis, Setting, Menu, Fold, Expand, Bell } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const websocketStore = useWebSocketStore()
 
 const isCollapse = ref(false)
 const activeMenu = computed(() => route.path)
@@ -119,6 +133,19 @@ const handleLogout = () => {
   userStore.logout()
   router.push('/login')
 }
+
+// 组件挂载时初始化WebSocket连接
+onMounted(() => {
+  // 初始化实时时间显示
+  websocketStore.initRealTimeDisplay()
+  // 初始化实时考试信息
+  websocketStore.initRealTimeExamData()
+})
+
+// 组件卸载时关闭WebSocket连接
+onUnmounted(() => {
+  websocketStore.closeAllConnections()
+})
 </script>
 
 <style scoped>
@@ -212,6 +239,16 @@ const handleLogout = () => {
   padding: 24px;
   background: linear-gradient(180deg, #ffffff 0%, #f8f9fa 100%);
   min-height: calc(100vh - 60px);
+}
+
+.websocket-status {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.websocket-status .el-tag {
+  font-size: 12px;
 }
 
 /* 添加自然元素装饰 */
