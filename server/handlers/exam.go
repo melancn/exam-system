@@ -124,10 +124,12 @@ func GetExamDetails(db *gorm.DB) gin.HandlerFunc {
 		var questionResponses []gin.H
 		for _, question := range questions {
 			questionResponse := gin.H{
-				"id":      question.ID,
-				"type":    question.Type,
-				"content": question.Content,
-				"score":   question.Score,
+				"id":            question.ID,
+				"type":          question.Type,
+				"content":       question.Content,
+				"score":         question.Score,
+				"correctAnswer": question.Answer,
+				"placeholder":   question.Placeholder,
 			}
 
 			// 根据题目类型添加特定字段
@@ -143,9 +145,12 @@ func GetExamDetails(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		response := gin.H{
-			"id":        exam.ID,
-			"title":     exam.Title,
-			"questions": questionResponses,
+			"id":          exam.ID,
+			"title":       exam.Title,
+			"description": exam.Description,
+			"totalScore":  exam.TotalScore,
+			"status":      exam.Status,
+			"questions":   questionResponses,
 		}
 		c.JSON(http.StatusOK, response)
 	}

@@ -96,10 +96,10 @@
                 </el-form-item>
                 
                 <el-form-item label="分数" prop="score">
-                  <el-input-number 
-                    v-model="question.score" 
-                    :min="1" 
-                    :max="50" 
+                  <el-input-number
+                    v-model="question.score"
+                    :min="1"
+                    :max="examInfo.totalScore"
                     placeholder="请输入分数"
                   />
                 </el-form-item>
@@ -408,7 +408,7 @@ const saveExam = async () => {
             return
           }
 
-          if (question.score % question.answers[i].length != 0) {
+          if (question.score % question.answers.length != 0) {
             ElMessage.error(`请确保每个填空项的答案数量与总分相匹配，例如总分100，每个填空项答案数量应为25个`)
             return
           }
@@ -443,6 +443,11 @@ const saveExam = async () => {
             answer: q.correctAnswer,
             inputCount: q.inputCount || 1,
             placeholder: q.placeholder || '请输入答案'
+          }
+          
+          // 填空题需要保存完整的answers配置
+          if (q.type === 'fill' && q.answers) {
+            questionData.answers = q.answers
           }
           
           return questionData

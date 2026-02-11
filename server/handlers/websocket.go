@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	"net/http"
+	"server/models"
 	"server/utils"
+	"strconv"
 	"sync"
 	"time"
 
@@ -19,20 +22,14 @@ type ExamTimerManager struct {
 	db          *gorm.DB
 }
 
+// TimerMessage 定义WebSocket消息结构
 type TimerMessage struct {
-	Type      string `json:"type"` // "start", "update", "end"
-	ExamID    uint   `json:"examId"`
-	StudentID uint   `json:"studentId"`
+	Type      string `json:"type"`      // 消息类型
+	ExamID    uint   `json:"examId"`    // 考试ID
+	StudentID uint   `json:"studentId"` // 学生ID
 	TimeUsed  int    `json:"timeUsed"`  // 已用时间（秒）
 	StartTime int64  `json:"startTime"` // 开始时间戳
-}
-
-type ExamTimer struct {
-	ExamID    uint  `json:"examId"`
-	StudentID uint  `json:"studentId"`
-	StartTime int64 `json:"startTime"`
-	TimeUsed  int   `json:"timeUsed"`
-	IsActive  bool  `json:"isActive"`
+	Message   string `json:"message"`   // 消息内容
 }
 
 var (
@@ -77,7 +74,7 @@ func handleWebSocketMessages(conn *websocket.Conn, db *gorm.DB) {
 	var userType string // "student" 或 "teacher"
 
 	for {
-		var msg interface{}
+		var msg map[string]interface{}
 		err := conn.ReadJSON(&msg)
 		if err != nil {
 			log.Printf("WebSocket read error: %v", err)
@@ -86,69 +83,71 @@ func handleWebSocketMessages(conn *websocket.Conn, db *gorm.DB) {
 
 		// 处理认证消息
 		if !authenticated {
-			if authMsg, ok := msg.(map[string]interface{}); ok {
-				if authMsg["type"] == "auth" {
-					token, ok := authMsg["token"].(string)
-					if !ok {
-						conn.WriteJSON(gin.H{"error": "Invalid auth message"})
-						continue
-					}
-
-					// 验证JWT token
-					claims, err := utils.ParseToken(token)
-					if err != nil {
-						conn.WriteJSON(gin.H{"error": "Invalid token"})
-						continue
-					}
-
-					// 设置用户ID和类型
-					if claims.Role == 1 { // 1表示学生
-						studentID = claims.UserID
-						userType = "student"
-						connID = generateConnectionID(studentID)
-					} else if claims.Role == 2 { // 2表示教师
-						teacherID = claims.UserID
-						userType = "teacher"
-						connID = generateTeacherConnectionID(teacherID)
-					} else {
-						conn.WriteJSON(gin.H{"error": "Unauthorized user role"})
-						continue
-					}
-
-					authenticated = true
-
-					// 添加到连接管理器
-					timerManager.mu.Lock()
-					timerManager.connections[connID] = conn
-					timerManager.mu.Unlock()
-
-					// 发送认证成功消息
-					conn.WriteJSON(gin.H{
-						"type":     "auth_success",
-						"message":  "Authentication successful",
-						"userId":   claims.UserID,
-						"userType": userType,
-						"role":     claims.Role,
-					})
-
-					log.Printf("%s %d authenticated successfully", userType, claims.UserID)
+			if msgType, ok := msg["type"].(string); ok && msgType == "auth" {
+				token, ok := msg["token"].(string)
+				if !ok {
+					conn.WriteJSON(gin.H{"error": "Invalid auth message"})
 					continue
 				}
+
+				// 验证JWT token
+				claims, err := utils.ParseToken(token)
+				if err != nil {
+					conn.WriteJSON(gin.H{"error": "Invalid token"})
+					continue
+				}
+
+				// 设置用户ID和类型
+				if claims.Role == 1 { // 1表示学生
+					studentID = claims.UserID
+					userType = "student"
+					connID = generateConnectionID(studentID)
+				} else if claims.Role == 2 { // 2表示教师
+					teacherID = claims.UserID
+					userType = "teacher"
+					connID = generateTeacherConnectionID(teacherID)
+				} else {
+					conn.WriteJSON(gin.H{"error": "Unauthorized user role"})
+					continue
+				}
+
+				authenticated = true
+
+				// 添加到连接管理器
+				timerManager.mu.Lock()
+				timerManager.connections[connID] = conn
+				timerManager.mu.Unlock()
+
+				// 发送认证成功消息
+				conn.WriteJSON(gin.H{
+					"type":     "auth_success",
+					"message":  "Authentication successful",
+					"userId":   claims.UserID,
+					"userType": userType,
+					"role":     claims.Role,
+				})
+
+				log.Printf("%s %d authenticated successfully", userType, claims.UserID)
+				continue
 			}
 			conn.WriteJSON(gin.H{"error": "Please authenticate first"})
 			continue
 		}
 
 		// 处理认证后的消息
-		if timerMsg, ok := msg.(map[string]interface{}); ok {
-			switch userType {
-			case "student":
-				handleStudentMessages(conn, timerMsg, studentID, db)
-			case "teacher":
-				handleTeacherMessages(conn, timerMsg, teacherID, db)
-			default:
-				conn.WriteJSON(gin.H{"error": "Unknown user type"})
-			}
+		_, ok := msg["type"].(string)
+		if !ok {
+			conn.WriteJSON(gin.H{"error": "Invalid message type"})
+			continue
+		}
+
+		switch userType {
+		case "student":
+			handleStudentMessages(conn, msg, studentID, db)
+		case "teacher":
+			handleTeacherMessages(conn, msg, teacherID, db)
+		default:
+			conn.WriteJSON(gin.H{"error": "Unknown user type"})
 		}
 	}
 
@@ -162,7 +161,13 @@ func handleWebSocketMessages(conn *websocket.Conn, db *gorm.DB) {
 
 // 处理学生消息
 func handleStudentMessages(conn *websocket.Conn, msg map[string]interface{}, studentID uint, db *gorm.DB) {
-	switch msg["type"] {
+	msgType, ok := msg["type"].(string)
+	if !ok {
+		conn.WriteJSON(gin.H{"error": "Invalid message type"})
+		return
+	}
+
+	switch msgType {
 	case "start":
 		handleTimerStart(conn, msg, studentID, db)
 	case "update":
@@ -176,16 +181,22 @@ func handleStudentMessages(conn *websocket.Conn, msg map[string]interface{}, stu
 
 // 处理教师消息
 func handleTeacherMessages(conn *websocket.Conn, msg map[string]interface{}, teacherID uint, db *gorm.DB) {
-	switch msg["type"] {
+	msgType, ok := msg["type"].(string)
+	if !ok {
+		conn.WriteJSON(gin.H{"error": "Invalid message type"})
+		return
+	}
+
+	switch msgType {
 	case "get_exam_status":
 		handleGetExamStatus(conn, msg, teacherID, db)
 	case "get_student_status":
 		handleGetStudentStatus(conn, msg, teacherID, db)
-	case "broadcast_message":
+	case "broadcast":
 		handleBroadcastMessage(conn, msg, teacherID, db)
-	case "pause_exam":
+	case "pause":
 		handlePauseExam(conn, msg, teacherID, db)
-	case "resume_exam":
+	case "resume":
 		handleResumeExam(conn, msg, teacherID, db)
 	default:
 		conn.WriteJSON(gin.H{"error": "Unknown message type"})
@@ -200,7 +211,7 @@ func handleGetExamStatus(conn *websocket.Conn, msg map[string]interface{}, teach
 		return
 	}
 
-	var timers []ExamTimer
+	var timers []models.ExamTimer
 	if err := db.Where("exam_id = ? AND is_active = ?", uint(examID), true).Find(&timers).Error; err != nil {
 		conn.WriteJSON(gin.H{"error": "Failed to get exam status"})
 		return
@@ -214,7 +225,7 @@ func handleGetExamStatus(conn *websocket.Conn, msg map[string]interface{}, teach
 
 	conn.WriteJSON(gin.H{
 		"type":    "exam_status",
-		"examId":  examID,
+		"examId":  uint(examID),
 		"timers":  timers,
 		"count":   len(timers),
 		"message": "Exam status retrieved successfully",
@@ -229,7 +240,7 @@ func handleGetStudentStatus(conn *websocket.Conn, msg map[string]interface{}, te
 		return
 	}
 
-	var timers []ExamTimer
+	var timers []models.ExamTimer
 	if err := db.Where("student_id = ?", uint(studentID)).Order("start_time DESC").Find(&timers).Error; err != nil {
 		conn.WriteJSON(gin.H{"error": "Failed to get student status"})
 		return
@@ -237,7 +248,7 @@ func handleGetStudentStatus(conn *websocket.Conn, msg map[string]interface{}, te
 
 	conn.WriteJSON(gin.H{
 		"type":      "student_status",
-		"studentId": studentID,
+		"studentId": uint(studentID),
 		"timers":    timers,
 		"count":     len(timers),
 		"message":   "Student status retrieved successfully",
@@ -267,7 +278,7 @@ func handleBroadcastMessage(conn *websocket.Conn, msg map[string]interface{}, te
 
 	conn.WriteJSON(gin.H{
 		"type":    "broadcast_ack",
-		"examId":  examID,
+		"examId":  uint(examID),
 		"message": "Message broadcasted successfully",
 	})
 }
@@ -281,7 +292,7 @@ func handlePauseExam(conn *websocket.Conn, msg map[string]interface{}, teacherID
 	}
 
 	// 更新数据库中的计时器状态
-	if err := db.Model(&ExamTimer{}).Where("exam_id = ? AND is_active = ?", uint(examID), true).Update("is_active", false).Error; err != nil {
+	if err := db.Model(&models.ExamTimer{}).Where("exam_id = ? AND is_active = ?", uint(examID), true).Update("is_active", false).Error; err != nil {
 		conn.WriteJSON(gin.H{"error": "Failed to pause exam"})
 		return
 	}
@@ -295,7 +306,7 @@ func handlePauseExam(conn *websocket.Conn, msg map[string]interface{}, teacherID
 
 	conn.WriteJSON(gin.H{
 		"type":    "pause_ack",
-		"examId":  examID,
+		"examId":  uint(examID),
 		"message": "Exam paused successfully",
 	})
 }
@@ -309,7 +320,7 @@ func handleResumeExam(conn *websocket.Conn, msg map[string]interface{}, teacherI
 	}
 
 	// 更新数据库中的计时器状态
-	if err := db.Model(&ExamTimer{}).Where("exam_id = ? AND is_active = ?", uint(examID), false).Update("is_active", true).Error; err != nil {
+	if err := db.Model(&models.ExamTimer{}).Where("exam_id = ? AND is_active = ?", uint(examID), false).Update("is_active", true).Error; err != nil {
 		conn.WriteJSON(gin.H{"error": "Failed to resume exam"})
 		return
 	}
@@ -323,7 +334,7 @@ func handleResumeExam(conn *websocket.Conn, msg map[string]interface{}, teacherI
 
 	conn.WriteJSON(gin.H{
 		"type":    "resume_ack",
-		"examId":  examID,
+		"examId":  uint(examID),
 		"message": "Exam resumed successfully",
 	})
 }
@@ -344,6 +355,20 @@ func broadcastToStudents(examID uint, message gin.H) {
 	}
 }
 
+// 广播消息给所有教师
+func broadcastToTeachers(message gin.H) {
+	timerManager.mu.RLock()
+	defer timerManager.mu.RUnlock()
+
+	for connID, conn := range timerManager.connections {
+		if isTeacherConnection(connID) {
+			if err := conn.WriteJSON(message); err != nil {
+				log.Printf("Failed to send message to teacher %s: %v", connID, err)
+			}
+		}
+	}
+}
+
 // 检查连接ID是否为学生连接
 func isStudentConnection(connID string) bool {
 	return len(connID) > 8 && connID[:8] == "student_"
@@ -356,7 +381,12 @@ func isTeacherConnection(connID string) bool {
 
 // 生成教师连接ID
 func generateTeacherConnectionID(teacherID uint) string {
-	return "teacher_" + string(rune(teacherID))
+	return "teacher_" + strconv.FormatUint(uint64(teacherID), 10)
+}
+
+// 生成连接ID
+func generateConnectionID(studentID uint) string {
+	return "student_" + strconv.FormatUint(uint64(studentID), 10)
 }
 
 // 处理计时开始
@@ -368,7 +398,7 @@ func handleTimerStart(conn *websocket.Conn, msg map[string]interface{}, studentI
 	}
 
 	// 记录开始时间
-	timer := ExamTimer{
+	timer := models.ExamTimer{
 		ExamID:    uint(examID),
 		StudentID: studentID,
 		StartTime: time.Now().Unix(),
@@ -385,7 +415,7 @@ func handleTimerStart(conn *websocket.Conn, msg map[string]interface{}, studentI
 	// 发送确认消息
 	conn.WriteJSON(gin.H{
 		"type":      "start_ack",
-		"examId":    examID,
+		"examId":    uint(examID),
 		"startTime": timer.StartTime,
 		"message":   "Timer started successfully",
 	})
@@ -409,7 +439,7 @@ func handleTimerUpdate(conn *websocket.Conn, msg map[string]interface{}, student
 	}
 
 	// 更新数据库中的时间
-	var timer ExamTimer
+	var timer models.ExamTimer
 	if err := db.Where("exam_id = ? AND student_id = ? AND is_active = ?",
 		uint(examID), studentID, true).First(&timer).Error; err != nil {
 		conn.WriteJSON(gin.H{"error": "Timer not found"})
@@ -425,7 +455,7 @@ func handleTimerUpdate(conn *websocket.Conn, msg map[string]interface{}, student
 	// 发送确认消息
 	conn.WriteJSON(gin.H{
 		"type":     "update_ack",
-		"examId":   examID,
+		"examId":   uint(examID),
 		"timeUsed": timer.TimeUsed,
 		"message":  "Timer updated successfully",
 	})
@@ -449,7 +479,7 @@ func handleTimerEnd(conn *websocket.Conn, msg map[string]interface{}, studentID 
 	}
 
 	// 更新数据库
-	var timer ExamTimer
+	var timer models.ExamTimer
 	if err := db.Where("exam_id = ? AND student_id = ? AND is_active = ?",
 		uint(examID), studentID, true).First(&timer).Error; err != nil {
 		conn.WriteJSON(gin.H{"error": "Timer not found"})
@@ -466,7 +496,7 @@ func handleTimerEnd(conn *websocket.Conn, msg map[string]interface{}, studentID 
 	// 发送确认消息
 	conn.WriteJSON(gin.H{
 		"type":     "end_ack",
-		"examId":   examID,
+		"examId":   uint(examID),
 		"timeUsed": timer.TimeUsed,
 		"message":  "Timer ended successfully",
 	})
@@ -487,35 +517,43 @@ func notifyTeacherStart(examID, studentID uint, startTime int64) {
 	}
 
 	// 广播给所有教师连接
-	timerManager.mu.RLock()
-	defer timerManager.mu.RUnlock()
-
-	for connID, conn := range timerManager.connections {
-		if isTeacherConnection(connID) {
-			if err := conn.WriteJSON(message); err != nil {
-				log.Printf("Failed to send start notification to teacher %s: %v", connID, err)
-			}
-		}
-	}
+	broadcastToTeachers(message)
 
 	log.Printf("Student %d started exam %d at %d", studentID, examID, startTime)
 }
 
 // 通知教师端时间更新
 func notifyTeacherUpdate(examID, studentID uint, timeUsed int) {
-	// 实时更新教师端显示的时间
+	// 构建通知消息
+	message := gin.H{
+		"type":      "update",
+		"examId":    examID,
+		"studentId": studentID,
+		"timeUsed":  timeUsed,
+		"timestamp": time.Now().Unix(),
+	}
+
+	// 广播给所有教师连接
+	broadcastToTeachers(message)
+
 	log.Printf("Student %d exam %d time updated: %d seconds", studentID, examID, timeUsed)
 }
 
 // 通知教师端考试结束
 func notifyTeacherEnd(examID, studentID uint, timeUsed int) {
-	// 通知教师端学生完成考试
-	log.Printf("Student %d finished exam %d in %d seconds", studentID, examID, timeUsed)
-}
+	// 构建通知消息
+	message := gin.H{
+		"type":      "student_end",
+		"examId":    examID,
+		"studentId": studentID,
+		"timeUsed":  timeUsed,
+		"timestamp": time.Now().Unix(),
+	}
 
-// 生成连接ID
-func generateConnectionID(studentID uint) string {
-	return "student_" + string(rune(studentID))
+	// 广播给所有教师连接
+	broadcastToTeachers(message)
+
+	log.Printf("Student %d finished exam %d in %d seconds", studentID, examID, timeUsed)
 }
 
 // 获取考试实时状态
@@ -523,7 +561,7 @@ func GetExamRealTimeStatus(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		examID := c.Param("id")
 
-		var timers []ExamTimer
+		var timers []models.ExamTimer
 		if err := db.Where("exam_id = ? AND is_active = ?", examID, true).Find(&timers).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get exam status"})
 			return
@@ -548,7 +586,7 @@ func GetStudentExamHistory(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		studentID := c.Param("id")
 
-		var timers []ExamTimer
+		var timers []models.ExamTimer
 		if err := db.Where("student_id = ?", studentID).Order("start_time DESC").Find(&timers).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get exam history"})
 			return
@@ -560,4 +598,59 @@ func GetStudentExamHistory(db *gorm.DB) gin.HandlerFunc {
 			"count":     len(timers),
 		})
 	}
+}
+
+// GetOnlineUsers 获取在线用户列表
+func GetOnlineUsers() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		timerManager.mu.RLock()
+		defer timerManager.mu.RUnlock()
+
+		var students []uint
+		var teachers []uint
+
+		for connID := range timerManager.connections {
+			if isStudentConnection(connID) {
+				// 从连接ID中提取学生ID
+				idStr := connID[8:]
+				if id, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+					students = append(students, uint(id))
+				}
+			} else if isTeacherConnection(connID) {
+				// 从连接ID中提取教师ID
+				idStr := connID[8:]
+				if id, err := strconv.ParseUint(idStr, 10, 32); err == nil {
+					teachers = append(teachers, uint(id))
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"students": students,
+			"teachers": teachers,
+			"total":    len(timerManager.connections),
+		})
+	}
+}
+
+// SendNotification 发送通知给指定用户
+func SendNotification(userID uint, userType string, message gin.H) error {
+	var connID string
+	if userType == "student" {
+		connID = generateConnectionID(userID)
+	} else if userType == "teacher" {
+		connID = generateTeacherConnectionID(userID)
+	} else {
+		return fmt.Errorf("invalid user type")
+	}
+
+	timerManager.mu.RLock()
+	conn, exists := timerManager.connections[connID]
+	timerManager.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("user not connected")
+	}
+
+	return conn.WriteJSON(message)
 }

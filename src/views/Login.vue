@@ -3,7 +3,7 @@
     <el-card class="login-card" shadow="always">
       <template #header>
         <div class="login-header">
-          <h2>欢迎登录xxx学校考试系统</h2>
+          <h2>欢迎登录{{ appTitle }}</h2>
         </div>
       </template>
       
@@ -48,7 +48,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
@@ -58,6 +58,9 @@ import { authAPI } from '@/services/api'
 const router = useRouter()
 const loginFormRef = ref()
 const loading = ref(false)
+
+// 从环境变量读取应用标题
+const appTitle = computed(() => import.meta.env.VITE_APP_TITLE || '考试系统')
 
 const loginForm = reactive({
   username: '',
@@ -128,7 +131,7 @@ const handleLogin = async () => {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
   position: relative;
   overflow: hidden;
 }
@@ -189,7 +192,7 @@ const handleLogin = async () => {
 .login-header h2 {
   margin: 0;
   font-size: 24px;
-  color: #2c3e50;
+  color: #155724;
   font-weight: 600;
 }
 

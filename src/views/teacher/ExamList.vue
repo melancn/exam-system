@@ -104,7 +104,24 @@
           </div>
           
           <div v-else class="preview-fill-blank">
-            <p>学生答案区域：_________</p>
+            <div class="fill-preview-content">
+              <span>{{ question.content }}</span>
+              <template v-for="(item, index) in question.answers" :key="index">
+                <span class="fill-input-wrapper">
+                  <span class="fill-input-number">({{ index + 1 }})</span>
+                  <el-input
+                    size="small"
+                    :type="item.type || 'text'"
+                    :placeholder="question.placeholder || '请输入答案'"
+                    style="margin: 0 5px; width: 120px;"
+                    disabled
+                  />
+                </span>
+              </template>
+            </div>
+            <div v-if="question.answers && question.answers.length > 0" class="fill-hint">
+              <span class="hint-text">共 {{ question.answers.length }} 个填空</span>
+            </div>
           </div>
         </div>
       </div>
@@ -203,7 +220,11 @@ const previewExam = async (exam) => {
           type: question.type,
           content: question.content,
           score: question.score,
-          options: question.options || []
+          options: question.options || [],
+          // 填空题配置
+          answers: question.answers || [],
+          inputCount: question.inputCount || 1,
+          placeholder: question.placeholder || '请输入答案'
         }))
       }
       showPreviewDialog.value = true
@@ -228,7 +249,11 @@ const toggleExamStatus = async (exam) => {
     await ElMessageBox.confirm(
       `确定要${action}试卷 "${exam.title}" 吗？`,
       `${action}试卷`,
-      { type: 'warning' }
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消'
+      }
     )
     
     // 调用API更新试卷状态
@@ -258,7 +283,11 @@ const deleteExam = async (exam) => {
     await ElMessageBox.confirm(
       `确定要删除试卷 "${exam.title}" 吗？此操作不可恢复。`,
       '删除试卷',
-      { type: 'warning' }
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消'
+      }
     )
     
     exams.value = exams.value.filter(e => e.id !== exam.id)
@@ -359,8 +388,43 @@ onMounted(async () => {
 
 .preview-fill-blank {
   margin: 15px 0;
-  padding: 10px;
+  padding: 15px;
   background-color: #f8f9fa;
   border-radius: 4px;
+}
+
+.fill-preview-content {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  line-height: 1.8;
+}
+
+.fill-input-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.fill-input-number {
+  font-size: 12px;
+  color: #409eff;
+  font-weight: bold;
+  min-width: 20px;
+  text-align: center;
+}
+
+.fill-hint {
+  margin-top: 10px;
+  padding: 8px;
+  background: #e6f7ff;
+  border-radius: 4px;
+  border-left: 3px solid #409eff;
+}
+
+.hint-text {
+  font-size: 12px;
+  color: #409eff;
 }
 </style>

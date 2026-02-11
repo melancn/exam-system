@@ -6,11 +6,8 @@
           <h2>考试系统 - 教师端</h2>
           <div class="user-info">
             <div class="websocket-status">
-              <el-tag :type="websocketStore.isWebSocketConnected ? 'success' : 'danger'" size="small">
-                实时数据: {{ websocketStore.isWebSocketConnected ? '已连接' : '已断开' }}
-              </el-tag>
-              <el-tag :type="websocketStore.isRealTimeConnected ? 'success' : 'danger'" size="small">
-                考试监控: {{ websocketStore.isRealTimeConnected ? '已连接' : '已断开' }}
+              <el-tag :type="isAllConnected ? 'success' : 'danger'" size="small">
+                WebSocket: {{ isAllConnected ? '已连接' : '已断开' }}
               </el-tag>
             </div>
             <span>欢迎，{{ userStore.userInfo?.name }} 老师</span>
@@ -51,10 +48,6 @@
               <el-menu-item index="/teacher/exam-assignment">
                 <el-icon><Tickets /></el-icon>
                 <span>试卷分配</span>
-              </el-menu-item>
-              <el-menu-item index="/teacher/exam-edit">
-                <el-icon><Edit /></el-icon>
-                <span>试卷编辑</span>
               </el-menu-item>
               <el-menu-item index="/teacher/exam-list">
                 <el-icon><Document /></el-icon>
@@ -124,6 +117,7 @@ const websocketStore = useWebSocketStore()
 
 const isCollapse = ref(false)
 const activeMenu = computed(() => route.path)
+const isAllConnected = computed(() => websocketStore.isConnected)
 
 const toggleCollapse = () => {
   isCollapse.value = !isCollapse.value
@@ -136,15 +130,12 @@ const handleLogout = () => {
 
 // 组件挂载时初始化WebSocket连接
 onMounted(() => {
-  // 初始化实时时间显示
-  websocketStore.initRealTimeDisplay()
-  // 初始化实时考试信息
-  websocketStore.initRealTimeExamData()
+  websocketStore.initWebSocket()
 })
 
 // 组件卸载时关闭WebSocket连接
 onUnmounted(() => {
-  websocketStore.closeAllConnections()
+  websocketStore.closeConnection()
 })
 </script>
 
@@ -154,7 +145,7 @@ onUnmounted(() => {
 }
 
 .header {
-  background: linear-gradient(135deg, #2d5a27 0%, #4a7c59 100%);
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
   color: white;
   padding: 0 20px;
   box-shadow: 0 2px 10px rgba(0,0,0,0.1);
@@ -187,13 +178,13 @@ onUnmounted(() => {
 
 .collapse-button:hover {
   background: linear-gradient(180deg, #e9ecef 0%, #dee2e6 100%);
-  color: #2d5a27;
+  color: #28a745;
 }
 
 .collapse-button .el-icon {
   font-size: 20px;
   vertical-align: middle;
-  color: #2d5a27;
+  color: #28a745;
 }
 
 .sidebar-menu {
@@ -241,10 +232,24 @@ onUnmounted(() => {
   min-height: calc(100vh - 60px);
 }
 
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: nowrap;
+}
+
+.user-info span {
+  font-size: 0.9rem;
+  opacity: 0.9;
+  white-space: nowrap;
+}
+
 .websocket-status {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .websocket-status .el-tag {

@@ -17,8 +17,8 @@
           <div class="card-header">
             <h3>发送广播消息</h3>
             <div class="real-time-indicator">
-              <el-tag :type="websocketStore.isRealTimeConnected ? 'success' : 'danger'" size="small">
-                {{ websocketStore.isRealTimeConnected ? 'WebSocket已连接' : 'WebSocket已断开' }}
+              <el-tag :type="websocketStore.isConnected ? 'success' : 'danger'" size="small">
+                {{ websocketStore.isConnected ? 'WebSocket已连接' : 'WebSocket已断开' }}
               </el-tag>
             </div>
           </div>
@@ -186,8 +186,8 @@
             <h3>实时连接学生列表</h3>
             <div class="real-time-controls">
               <el-button type="primary" size="small" @click="refreshRealTimeData">刷新</el-button>
-              <el-tag :type="websocketStore.isRealTimeConnected ? 'success' : 'danger'" size="small">
-                {{ websocketStore.isRealTimeConnected ? '已连接' : '已断开' }}
+              <el-tag :type="websocketStore.isConnected ? 'success' : 'danger'" size="small">
+                {{ websocketStore.isConnected ? '已连接' : '已断开' }}
               </el-tag>
             </div>
           </div>
@@ -304,7 +304,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useWebSocketStore } from '@/stores/websocket'
 import { teacherAPI } from '../../services/api'
@@ -438,30 +438,25 @@ const sendMessage = async () => {
   try {
     await messageFormRef.value.validate()
     
-    if (!websocketStore.isRealTimeConnected) {
-      ElMessage.error('WebSocket连接未建立，无法发送消息')
-      return
-    }
-    
     sending.value = true
     
     const messageData = {
       messageType: messageForm.messageType,
-      targetExam: messageForm.targetExam,
-      targetClass: messageForm.targetClass,
+      targetExam: messageForm.targetExam ? parseInt(messageForm.targetExam) : 0,
+      targetClass: messageForm.targetClass ? parseInt(messageForm.targetClass) : 0,
       title: messageForm.title,
       content: messageForm.content,
       sendMethod: messageForm.sendMethod,
       sendTime: messageForm.sendTime
     }
     
-    // 使用WebSocket发送广播消息
-    const success = websocketStore.broadcastMessage(messageData)
+    // 调用后端API创建消息
+    const response = await teacherAPI.createMessage(messageData)
     
-    if (success) {
+    if (response) {
       // 添加到历史记录
       const historyItem = {
-        id: Date.now(),
+        id: response.id,
         ...messageData,
         status: messageForm.sendMethod === 'immediate' ? 'sent' : 'pending',
         createTime: new Date().toISOString(),
@@ -472,13 +467,11 @@ const sendMessage = async () => {
       
       // 重置表单
       resetForm()
-      ElMessage.success('消息发送成功')
+      ElMessage.success(messageForm.sendMethod === 'immediate' ? '消息发送成功' : '消息已安排')
     }
   } catch (error) {
     console.error('发送消息失败:', error)
-    if (error.message) {
-      ElMessage.error(error.message)
-    }
+    ElMessage.error(error.response?.data?.error || '发送消息失败')
   } finally {
     sending.value = false
   }
@@ -546,17 +539,23 @@ const viewMessageDetail = (message) => {
 }
 
 // 取消消息
-const cancelMessage = (message) => {
+const cancelMessage = async (message) => {
   ElMessageBox.confirm('确定要取消这条待发送的消息吗？', '确认取消', {
     confirmButtonText: '确定',
     cancelButtonText: '取消',
     type: 'warning'
-  }).then(() => {
-    const index = messageHistory.value.findIndex(item => item.id === message.id)
-    if (index >= 0) {
-      messageHistory.value.splice(index, 1)
-      total.value--
-      ElMessage.success('消息已取消')
+  }).then(async () => {
+    try {
+      await teacherAPI.cancelMessage(message.id)
+      
+      const index = messageHistory.value.findIndex(item => item.id === message.id)
+      if (index >= 0) {
+        messageHistory.value[index].status = 'cancelled'
+        ElMessage.success('消息已取消')
+      }
+    } catch (error) {
+      console.error('取消消息失败:', error)
+      ElMessage.error('取消消息失败')
     }
   }).catch(() => {
     // 用户取消操作
@@ -604,33 +603,17 @@ const fetchClassList = async () => {
 // 获取消息历史记录
 const fetchMessageHistory = async () => {
   try {
-    // 这里应该调用API获取消息历史记录
-    // 目前使用模拟数据
-    messageHistory.value = [
-      {
-        id: 1,
-        messageType: 'exam_reminder',
-        title: '考试即将开始',
-        content: '请各位同学做好准备，考试将在10分钟后开始',
-        targetExam: 'JavaScript基础考试',
-        targetClass: '计算机1班',
-        status: 'sent',
-        sendTime: '2023-12-01 09:50:00',
-        createTime: '2023-12-01 09:50:00'
-      },
-      {
-        id: 2,
-        messageType: 'system_notice',
-        title: '系统维护通知',
-        content: '系统将于今晚22:00进行维护，预计持续1小时',
-        targetExam: '所有考试',
-        targetClass: '所有班级',
-        status: 'pending',
-        sendTime: '2023-12-01 22:00:00',
-        createTime: '2023-12-01 14:30:00'
-      }
-    ]
-    total.value = messageHistory.value.length
+    const response = await teacherAPI.getMessages({
+      page: currentPage.value,
+      pageSize: pageSize.value,
+      messageType: historyFilter.type,
+      keyword: historyFilter.keyword
+    })
+    
+    if (response) {
+      messageHistory.value = response.messages || []
+      total.value = response.total || 0
+    }
   } catch (error) {
     console.error('获取消息历史记录失败:', error)
   }
@@ -641,6 +624,11 @@ onMounted(() => {
   fetchExamList()
   fetchClassList()
   fetchMessageHistory()
+  
+  // 监听筛选条件变化，重新获取历史记录
+  watch(historyFilter, () => {
+    fetchMessageHistory()
+  }, { deep: true })
 })
 </script>
 

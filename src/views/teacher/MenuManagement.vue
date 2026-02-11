@@ -264,7 +264,11 @@ const deleteMenu = async (menu) => {
     await ElMessageBox.confirm(
       `确定要删除菜单 "${menu.name}" 吗？此操作不可恢复。`,
       '删除菜单',
-      { type: 'warning' }
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消'
+      }
     )
     
     if (menu.parentId) {

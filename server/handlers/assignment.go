@@ -543,8 +543,8 @@ func calculateClassStatistics(db *gorm.DB, class models.Class) gin.H {
 			"className":     class.Name,
 			"studentCount":  0,
 			"avgScore":      0,
-			"passRate":      "0%",
-			"excellentRate": "0%",
+			"passRate":      "0.00",
+			"excellentRate": "0.00",
 			"examCount":     0,
 		}
 	}
@@ -574,8 +574,8 @@ func calculateClassStatistics(db *gorm.DB, class models.Class) gin.H {
 			"className":     class.Name,
 			"studentCount":  studentCount,
 			"avgScore":      0,
-			"passRate":      "0%",
-			"excellentRate": "0%",
+			"passRate":      "0.00",
+			"excellentRate": "0.00",
 			"examCount":     0,
 		}
 	}
@@ -591,8 +591,8 @@ func calculateClassStatistics(db *gorm.DB, class models.Class) gin.H {
 			"className":     class.Name,
 			"studentCount":  studentCount,
 			"avgScore":      0,
-			"passRate":      "0%",
-			"excellentRate": "0%",
+			"passRate":      "0.00",
+			"excellentRate": "0.00",
 			"examCount":     len(assignmentIds),
 		}
 	}
@@ -633,8 +633,8 @@ func calculateClassStatistics(db *gorm.DB, class models.Class) gin.H {
 		"className":     class.Name,
 		"studentCount":  studentCount,
 		"avgScore":      avgScore,
-		"passRate":      fmt.Sprintf("%.1f%%", passRate),
-		"excellentRate": fmt.Sprintf("%.1f%%", excellentRate),
+		"passRate":      fmt.Sprintf("%.2f", passRate),
+		"excellentRate": fmt.Sprintf("%.2f", excellentRate),
 		"examCount":     len(assignmentIds),
 	}
 }

@@ -31,6 +31,8 @@ func main() {
 		&models.Class{},
 		&models.ExamAssignment{},
 		&models.LoginLog{},
+		&models.Message{},
+		&models.ExamTimer{},
 	)
 	if err != nil {
 		log.Fatal("Failed to migrate database:", err)
@@ -49,6 +51,9 @@ func main() {
 
 	// 初始化WebSocket管理器
 	handlers.InitWebSocketManager(db)
+
+	// 初始化消息调度器
+	handlers.InitMessageScheduler(db)
 
 	// 创建Gin路由
 	r := gin.Default()
@@ -105,6 +110,7 @@ func setupRoutes(r *gin.Engine, db *gorm.DB) {
 		api.GET("/exam-timer", handlers.ExamTimerWebSocket(db))
 		api.GET("/exam-status/:id", handlers.GetExamRealTimeStatus(db))
 		api.GET("/student-history/:id", handlers.GetStudentExamHistory(db))
+		api.GET("/online-users", handlers.GetOnlineUsers())
 
 		// 认证路由
 		auth := api.Group("/auth")
@@ -168,6 +174,13 @@ func setupRoutes(r *gin.Engine, db *gorm.DB) {
 
 			// 登录日志
 			teacher.GET("/login-logs", handlers.GetLoginLogs(db))
+
+			// 消息管理
+			teacher.GET("/messages", handlers.GetMessages(db))
+			teacher.POST("/messages", handlers.CreateMessage(db))
+			teacher.GET("/messages/:id", handlers.GetMessage(db))
+			teacher.PUT("/messages/:id/cancel", handlers.CancelMessage(db))
+			teacher.DELETE("/messages/:id", handlers.DeleteMessage(db))
 		}
 
 		// 管理员路由

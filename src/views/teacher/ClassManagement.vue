@@ -544,7 +544,11 @@ const deleteClass = async (classItem) => {
     await ElMessageBox.confirm(
       `确定要删除班级 "${classItem.name}" 吗？此操作不可恢复。`,
       '删除班级',
-      { type: 'warning' }
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消'
+      }
     )
     
     try {

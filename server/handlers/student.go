@@ -439,7 +439,7 @@ func GetStudentProfile(db *gorm.DB) gin.HandlerFunc {
 			b float64
 			c int64
 		}
-		db.Model(&models.ExamResult{}).Where("student_id = ?", studentID).Select("AVG(score) a, MAX(score) b, sum(iif(score >= 60,1,0))").Scan(&Score)
+		db.Model(&models.ExamResult{}).Where("student_id = ?", studentID).Select("COALESCE(AVG(score), 0) a, COALESCE(MAX(score), 0) b, sum(iif(score >= 60,1,0))").Scan(&Score)
 
 		// 构建响应数据
 		response := gin.H{
@@ -486,7 +486,7 @@ func GetStudents(db *gorm.DB) gin.HandlerFunc {
 		// 搜索条件
 		if keyword != "" {
 			search := "%" + keyword + "%"
-			query = query.Where("name LIKE ? OR student_id LIKE ?", search, search)
+			query = query.Where("name LIKE ? OR username LIKE ? OR student_id LIKE ?", search, search, search)
 		}
 
 		// 获取总数
@@ -513,6 +513,7 @@ func GetStudents(db *gorm.DB) gin.HandlerFunc {
 
 			response = append(response, gin.H{
 				"id":         student.ID,
+				"username":   student.Username,
 				"studentId":  student.StudentID,
 				"name":       student.Name,
 				"classId":    student.ClassId,
@@ -648,9 +649,10 @@ func UpdateStudent(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var request struct {
-			Name    string `json:"name"`
-			ClassId int    `json:"classId"`
-			Major   string `json:"major"`
+			Name     string `json:"name"`
+			ClassId  int    `json:"classId"`
+			Major    string `json:"major"`
+			Password string `json:"password"`
 		}
 
 		if err := c.ShouldBindJSON(&request); err != nil {
@@ -666,6 +668,9 @@ func UpdateStudent(db *gorm.DB) gin.HandlerFunc {
 		}
 		if request.Major != "" {
 			student.Major = request.Major
+		}
+		if request.Password != "" {
+			student.Password = models.HashPassword(request.Password)
 		}
 
 		if err := db.Save(&student).Error; err != nil {

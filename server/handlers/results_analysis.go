@@ -26,7 +26,7 @@ func GetResultsAnalysis(db *gorm.DB) gin.HandlerFunc {
 
 		// 计算平均分
 		var avgScore float64
-		db.Model(&models.ExamResult{}).Select("AVG(score)").Scan(&avgScore)
+		db.Model(&models.ExamResult{}).Select("COALESCE(AVG(score), 0)").Scan(&avgScore)
 
 		// 计算及格率
 		var passCount int64
@@ -63,7 +63,7 @@ func ExportExamReport(db *gorm.DB) gin.HandlerFunc {
 
 		// 计算平均分
 		var avgScore float64
-		db.Model(&models.ExamResult{}).Select("AVG(score)").Scan(&avgScore)
+		db.Model(&models.ExamResult{}).Select("COALESCE(AVG(score), 0)").Scan(&avgScore)
 
 		// 计算及格率
 		var passCount int64
@@ -157,7 +157,7 @@ func ExportExamReport(db *gorm.DB) gin.HandlerFunc {
 		for _, class := range classes {
 			var classResults []models.ExamResult
 			db.Joins("JOIN users ON exam_results.student_id = users.id").
-				Where("users.class_name = ? AND users.role = 1", class.Name). // 1: student
+				Where("users.class_id = ? AND users.role = 1", class.ID). // 1: student
 				Find(&classResults)
 
 			var totalScore float64
@@ -358,8 +358,8 @@ func GetClassComparison(db *gorm.DB) gin.HandlerFunc {
 				var avgScore float64
 				db.Model(&models.ExamResult{}).
 					Joins("JOIN users ON exam_results.student_id = users.id").
-					Where("users.class_name = ? AND users.role = 1", class.Name). // 1: student
-					Select("AVG(score)").
+					Where("users.class_id = ? AND users.role = 1", class.ID). // 1: student
+					Select("COALESCE(AVG(score), 0)").
 					Scan(&avgScore)
 				result = gin.H{
 					"classId":   class.ID,
@@ -370,11 +370,11 @@ func GetClassComparison(db *gorm.DB) gin.HandlerFunc {
 				var totalCount, passCount int64
 				db.Model(&models.ExamResult{}).
 					Joins("JOIN users ON exam_results.student_id = users.id").
-					Where("users.class_name = ? AND users.role = 1", class.Name). // 1: student
+					Where("users.class_id = ? AND users.role = 1", class.ID). // 1: student
 					Count(&totalCount)
 				db.Model(&models.ExamResult{}).
 					Joins("JOIN users ON exam_results.student_id = users.id").
-					Where("users.class_name = ? AND users.role = 1 AND score >= 60", class.Name). // 1: student
+					Where("users.class_id = ? AND users.role = 1 AND score >= 60", class.ID). // 1: student
 					Count(&passCount)
 				var passRate float64
 				if totalCount > 0 {
@@ -389,11 +389,11 @@ func GetClassComparison(db *gorm.DB) gin.HandlerFunc {
 				var totalCount, excellentCount int64
 				db.Model(&models.ExamResult{}).
 					Joins("JOIN users ON exam_results.student_id = users.id").
-					Where("users.class_name = ? AND users.role = 1", class.Name). // 1: student
+					Where("users.class_id = ? AND users.role = 1", class.ID). // 1: student
 					Count(&totalCount)
 				db.Model(&models.ExamResult{}).
 					Joins("JOIN users ON exam_results.student_id = users.id").
-					Where("users.class_name = ? AND users.role = 1 AND score >= 90", class.Name). // 1: student
+					Where("users.class_id = ? AND users.role = 1 AND score >= 90", class.ID). // 1: student
 					Count(&excellentCount)
 				var excellentRate float64
 				if totalCount > 0 {

@@ -12,12 +12,10 @@
           </el-button>
           <h2>考试系统 - 学生端</h2>
           <div class="user-info">
-            <div class="notification-indicator">
-              <el-badge :is-dot="isWebSocketConnected.value" type="success">
-                <el-icon :class="{ 'connected': isWebSocketConnected.value }">
-                  <Bell />
-                </el-icon>
-              </el-badge>
+            <div class="websocket-status">
+              <el-tag :type="isWebSocketConnected ? 'success' : 'danger'" size="small">
+                WebSocket: {{ isWebSocketConnected ? '已连接' : '已断开' }}
+              </el-tag>
             </div>
             <span>欢迎，{{ userStore.userInfo?.name }}</span>
             <el-button type="primary" text @click="handleLogout">退出登录</el-button>
@@ -71,17 +69,18 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { useWebSocketStore } from '@/stores/websocket'
 import { User, Document, DataAnalysis, Menu, Bell } from '@element-plus/icons-vue'
-import { initWebSocket, closeWebSocket, getWebSocketStatus } from '@/composables/useWebSocket'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const websocketStore = useWebSocketStore()
 
 const activeMenu = computed(() => route.path)
 const isSidebarOpen = ref(false)
 const isMobile = ref(false)
-const isWebSocketConnected = getWebSocketStatus()
+const isWebSocketConnected = computed(() => websocketStore.isConnected)
 
 // 检测屏幕尺寸
 const checkScreenSize = () => {
@@ -107,7 +106,7 @@ const handleMenuSelect = () => {
 
 // 退出登录
 const handleLogout = () => {
-  closeWebSocket()
+  websocketStore.closeConnection()
   userStore.logout()
   router.push('/login')
 }
@@ -117,12 +116,12 @@ onMounted(() => {
   checkScreenSize()
   window.addEventListener('resize', checkScreenSize)
   // 初始化WebSocket连接
-  initWebSocket()
+  websocketStore.initWebSocket()
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkScreenSize)
-  closeWebSocket()
+  websocketStore.closeConnection()
 })
 </script>
 
@@ -161,39 +160,24 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-wrap: nowrap;
 }
 
 .user-info span {
   font-size: 0.9rem;
   opacity: 0.9;
+  white-space: nowrap;
 }
 
-.notification-indicator {
+.websocket-status {
   display: flex;
+  gap: 8px;
   align-items: center;
+  flex-shrink: 0;
 }
 
-.notification-indicator .el-icon {
-  font-size: 1.2rem;
-  color: rgba(255, 255, 255, 0.7);
-  transition: all 0.3s ease;
-}
-
-.notification-indicator .el-icon.connected {
-  color: #67c23a;
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-  100% {
-    opacity: 1;
-  }
+.websocket-status .el-tag {
+  font-size: 12px;
 }
 
 /* 移动端适配 */

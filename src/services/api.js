@@ -104,6 +104,13 @@ export const teacherAPI = {
   getExamDetail: (id) => api.get(`/teacher/results-analysis/exam-detail/${id}`),
   exportExamReport: () => api.get('/teacher/results-analysis/export'),
   
+  // 消息管理
+  getMessages: (params = {}) => api.get('/teacher/messages', { params }),
+  createMessage: (data) => api.post('/teacher/messages', data),
+  getMessage: (id) => api.get(`/teacher/messages/${id}`),
+  cancelMessage: (id) => api.put(`/teacher/messages/${id}/cancel`),
+  deleteMessage: (id) => api.delete(`/teacher/messages/${id}`),
+  
   // 管理员权限API
   getTeachers: () => api.get('/teacher/admin/accounts'),
   createTeacher: (data) => api.post('/teacher/admin/accounts', data),

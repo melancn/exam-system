@@ -85,15 +85,23 @@ type Answers []struct {
 }
 
 func (j *Options) Scan(value interface{}) error {
-	bytes, ok := value.(string)
-	if !ok {
+	var bytes []byte
+	switch v := value.(type) {
+	case string:
+		if len(v) == 0 {
+			return nil
+		}
+		bytes = []byte(v)
+	case []byte:
+		if len(v) == 0 {
+			return nil
+		}
+		bytes = v
+	default:
 		return errors.New(fmt.Sprint("Failed to unmarshal JSONB value:", value))
 	}
-	if len(bytes) == 0 {
-		return nil
-	}
 
-	return json.Unmarshal([]byte(bytes), &j)
+	return json.Unmarshal(bytes, &j)
 }
 
 func (j Options) Value() (driver.Value, error) {
@@ -104,15 +112,23 @@ func (j Options) Value() (driver.Value, error) {
 }
 
 func (j *Answers) Scan(value interface{}) error {
-	bytes, ok := value.(string)
-	if !ok {
+	var bytes []byte
+	switch v := value.(type) {
+	case string:
+		if len(v) == 0 {
+			return nil
+		}
+		bytes = []byte(v)
+	case []byte:
+		if len(v) == 0 {
+			return nil
+		}
+		bytes = v
+	default:
 		return errors.New(fmt.Sprint("Failed to unmarshal JSONB value:", value))
 	}
-	if len(bytes) == 0 {
-		return nil
-	}
 
-	return json.Unmarshal([]byte(bytes), &j)
+	return json.Unmarshal(bytes, &j)
 }
 
 func (j Answers) Value() (driver.Value, error) {

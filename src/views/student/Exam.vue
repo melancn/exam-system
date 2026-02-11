@@ -60,15 +60,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { studentAPI } from '@/services/api'
 import { examProgressSync } from '@/utils/sync'
-import { 
-  sendWebSocketMessage, 
-  registerMessageHandler, 
-  removeMessageHandler, 
-  getWebSocketStatus 
-} from '@/composables/useWebSocket'
+import { useWebSocketStore } from '@/stores/websocket'
 
 const route = useRoute()
 const router = useRouter()
+const websocketStore = useWebSocketStore()
 
 const examInfo = ref({
   id: parseInt(route.params.id),
@@ -82,7 +78,7 @@ const answers = ref([])
 const remainingTime = ref(0)
 const timer = ref(null)
 const submitting = ref(false)
-const isWebSocketConnected = getWebSocketStatus()
+const isWebSocketConnected = computed(() => websocketStore.isConnected)
 const isSyncing = ref(false)
 
 const totalTime = computed(() => examInfo.value.duration * 60) // 转换为秒
@@ -164,7 +160,7 @@ const examMessageHandler = (data) => {
 
 // 发送开始计时消息
 const sendTimerStart = () => {
-  sendWebSocketMessage({
+  websocketStore.sendMessage({
     type: 'start',
     examId: examInfo.value.id
   })
@@ -172,7 +168,7 @@ const sendTimerStart = () => {
 
 // 发送时间更新消息
 const sendTimeUpdate = () => {
-  sendWebSocketMessage({
+  websocketStore.sendMessage({
     type: 'update',
     examId: examInfo.value.id,
     timeUsed: Math.floor((totalTime.value - remainingTime.value) / 60)
@@ -181,7 +177,7 @@ const sendTimeUpdate = () => {
 
 // 发送结束计时消息
 const sendTimerEnd = () => {
-  sendWebSocketMessage({
+  websocketStore.sendMessage({
     type: 'end',
     examId: examInfo.value.id,
     timeUsed: Math.floor((totalTime.value - remainingTime.value) / 60)
@@ -237,7 +233,7 @@ const submitExam = async (autoSubmit = false) => {
 onMounted(async () => {
   try {
     // 注册WebSocket消息处理器
-    registerMessageHandler('exam', examMessageHandler)
+    websocketStore.registerMessageHandler('exam', examMessageHandler)
     
     // 尝试从API获取试卷数据
     const response = await studentAPI.getExamDetails(examInfo.value.id)
@@ -286,7 +282,7 @@ onUnmounted(() => {
     clearInterval(timer.value)
   }
   // 移除WebSocket消息处理器
-  removeMessageHandler('exam')
+  websocketStore.removeMessageHandler('exam')
 })
 </script>
 

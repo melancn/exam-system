@@ -199,7 +199,11 @@ const deleteTeacher = async (teacher) => {
     await ElMessageBox.confirm(
       `确定要删除教师账号 "${teacher.name}" 吗？此操作不可恢复。`,
       '删除教师账号',
-      { type: 'warning' }
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消'
+      }
     )
     
     await teacherAPI.deleteTeacher(teacher.id)

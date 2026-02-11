@@ -1,163 +1,115 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElNotification } from 'element-plus'
+import config from '@/config'
 
 export const useWebSocketStore = defineStore('websocket', () => {
   // WebSocket连接状态
-  const isWebSocketConnected = ref(false)
-  const isRealTimeConnected = ref(false)
+  const isConnected = ref(false)
   const ws = ref(null)
-  const realTimeWs = ref(null)
   const retryCount = ref(0)
-  const realTimeRetryCount = ref(0)
+  let reconnectTimer = null
   
   // 实时数据
   const realTimeData = ref([])
   const realTimeExamData = ref([])
   
-  // WebSocket配置
-  const websocketConfig = {
-    maxRetries: 5,
-    retryInterval: 3000,
-    timeout: 5000
-  }
-  
-  const config = {
-    websocket: {
-      baseURL: 'ws://localhost:8080',
-      endpoint: '/ws/exam-monitor',
-      maxReconnectAttempts: 5,
-      reconnectInterval: 3000
-    }
-  }
+  // 消息处理器（用于组件注册自定义处理逻辑）
+  const messageHandlers = new Map()
   
   // 计算属性
-  const connectionStatus = computed(() => {
-    return {
-      realTime: isRealTimeConnected.value,
-      data: isWebSocketConnected.value
-    }
-  })
+  const connectionStatus = computed(() => isConnected.value)
   
-  // 初始化实时时间显示WebSocket连接
-  const initRealTimeDisplay = () => {
-    const wsUrl = `ws://localhost:8080/api/exam-timer`
+  // 初始化WebSocket连接（统一入口）
+  const initWebSocket = () => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+      console.warn('未找到token，无法建立WebSocket连接')
+      return
+    }
+
+    const wsUrl = `${config.websocket.baseURL}${config.websocket.endpoint}`
+    console.log('连接WebSocket:', wsUrl)
     
     try {
       ws.value = new WebSocket(wsUrl)
 
       ws.value.onopen = () => {
-        console.log('实时时间WebSocket连接已建立')
-        isWebSocketConnected.value = true
+        console.log('WebSocket连接已建立')
+        isConnected.value = true
         retryCount.value = 0 // 重置重试次数
-      }
-
-      ws.value.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          console.log('收到实时时间数据:', data)
-          updateRealTimeData(data)
-        } catch (error) {
-          console.error('解析WebSocket消息失败:', error)
-        }
-      }
-
-      ws.value.onerror = (error) => {
-        console.error('实时时间WebSocket错误:', error)
-        isWebSocketConnected.value = false
-      }
-
-      ws.value.onclose = (event) => {
-        console.log('实时时间WebSocket连接已关闭:', event.code, event.reason)
-        isWebSocketConnected.value = false
-        
-        // 如果是意外断开且未达到最大重试次数，则尝试重连
-        if (event.code !== 1000 && retryCount.value < websocketConfig.maxRetries) {
-          retryCount.value++
-          console.log(`WebSocket连接断开，${websocketConfig.retryInterval / 1000}秒后尝试重连(${retryCount.value}/${websocketConfig.maxRetries})`)
-          
-          setTimeout(() => {
-            initRealTimeDisplay()
-          }, websocketConfig.retryInterval)
-        }
-      }
-    } catch (error) {
-      console.error('创建WebSocket连接失败:', error)
-      ElMessage.error('实时数据连接失败')
-    }
-  }
-  
-  // 初始化实时考试信息WebSocket连接
-  const initRealTimeExamData = () => {
-    const token = localStorage.getItem('token')
-    if (!token) {
-      ElMessage.error('请先登录')
-      return
-    }
-
-    const wsUrl = `${config.websocket.baseURL}${config.websocket.endpoint}`
-    
-    try {
-      realTimeWs.value = new WebSocket(wsUrl)
-
-      realTimeWs.value.onopen = () => {
-        console.log('实时考试信息WebSocket连接已建立')
-        isRealTimeConnected.value = true
-        realTimeRetryCount.value = 0 // 重置重试次数
         
         // 发送认证消息
         const authMessage = {
           type: 'auth',
           token: token
         }
-        realTimeWs.value.send(JSON.stringify(authMessage))
+        ws.value.send(JSON.stringify(authMessage))
       }
 
-      realTimeWs.value.onmessage = (event) => {
+      ws.value.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
-          console.log('收到实时考试信息数据:', data)
-          handleRealTimeMessage(data)
+          console.log('收到WebSocket消息:', data)
+          handleMessage(data)
         } catch (error) {
           console.error('解析WebSocket消息失败:', error)
         }
       }
 
-      realTimeWs.value.onerror = (error) => {
-        console.error('实时考试信息WebSocket错误:', error)
-        isRealTimeConnected.value = false
+      ws.value.onerror = (error) => {
+        console.error('WebSocket错误:', error)
+        isConnected.value = false
       }
 
-      realTimeWs.value.onclose = (event) => {
-        console.log('实时考试信息WebSocket连接已关闭:', event.code, event.reason)
-        isRealTimeConnected.value = false
+      ws.value.onclose = (event) => {
+        console.log('WebSocket连接已关闭:', event.code, event.reason)
+        isConnected.value = false
         
         // 如果是意外断开且未达到最大重试次数，则尝试重连
-        if (event.code !== 1000 && realTimeRetryCount.value < config.websocket.maxReconnectAttempts) {
-          realTimeRetryCount.value++
-          console.log(`WebSocket连接断开，${config.websocket.reconnectInterval / 1000}秒后尝试重连(${realTimeRetryCount.value}/${config.websocket.maxReconnectAttempts})`)
+        if (event.code !== 1000 && retryCount.value < config.websocket.maxReconnectAttempts) {
+          retryCount.value++
+          console.log(`WebSocket连接断开，${config.websocket.reconnectInterval / 1000}秒后尝试重连(${retryCount.value}/${config.websocket.maxReconnectAttempts})`)
           
-          setTimeout(() => {
-            initRealTimeExamData()
+          reconnectTimer = setTimeout(() => {
+            initWebSocket()
           }, config.websocket.reconnectInterval)
         }
       }
     } catch (error) {
-      console.error('创建实时考试信息WebSocket连接失败:', error)
-      ElMessage.error('实时数据连接失败')
+      console.error('创建WebSocket连接失败:', error)
+      ElMessage.error('WebSocket连接失败')
     }
   }
   
-  // 处理实时消息
-  const handleRealTimeMessage = (data) => {
+  // 统一消息处理器 - 通过type区分消息类型
+  const handleMessage = (data) => {
     if (!data || !data.type) return
     
+    // 先调用所有注册的消息处理器
+    messageHandlers.forEach(handler => {
+      try {
+        handler(data)
+      } catch (error) {
+        console.error('消息处理器执行失败:', error)
+      }
+    })
+    
+    // 然后处理默认消息类型
     switch (data.type) {
+      // 认证相关
       case 'auth_success':
-        console.log('实时考试信息WebSocket认证成功')
-        // 请求当前考试状态
+        console.log('WebSocket认证成功')
+        // 认证成功后请求当前考试状态
         requestCurrentExamStatus()
         break
+        
+      // 实时时间相关
+      case 'timer_update':
+        handleTimerUpdate(data)
+        break
+        
+      // 考试状态相关
       case 'exam_status':
         updateRealTimeExamData(data)
         break
@@ -168,31 +120,67 @@ export const useWebSocketStore = defineStore('websocket', () => {
         updateStudentEnd(data)
         break
       case 'update':
+        // 兼容旧的消息类型，处理学生时间更新
         updateStudentTime(data)
         break
+        
+      // 广播消息相关
+      case 'broadcast':
+        showNotification('广播通知', data.message, 'info')
+        break
+      case 'pause':
+        showNotification('考试通知', '考试已被教师暂停', 'warning')
+        break
+      case 'resume':
+        showNotification('考试通知', '考试已被教师恢复', 'success')
+        break
+        
       default:
-        console.log('未知的实时消息类型:', data.type)
+        console.log('未知的消息类型:', data.type)
+    }
+  }
+  
+  // 处理定时器更新（实时时间显示）
+  const handleTimerUpdate = (data) => {
+    if (data.examId && data.studentId && typeof data.timeUsed !== 'number') {
+      console.warn('定时器数据不完整:', data)
+      return
+    }
+    
+    // 更新实时数据数组
+    const index = realTimeData.value.findIndex(item => 
+      item.examId === data.examId && item.studentId === data.studentId
+    )
+    
+    if (index >= 0) {
+      realTimeData.value[index].timeUsed = data.timeUsed
+    } else {
+      realTimeData.value.push({
+        examId: data.examId,
+        studentId: data.studentId,
+        timeUsed: data.timeUsed,
+        startTime: data.startTime
+      })
     }
   }
   
   // 请求当前考试状态
   const requestCurrentExamStatus = () => {
-    if (realTimeWs.value && realTimeWs.value.readyState === WebSocket.OPEN) {
+    if (ws.value && ws.value.readyState === WebSocket.OPEN) {
       const message = {
         type: 'get_exam_status',
         examId: 0 // 0表示获取所有考试状态
       }
-      realTimeWs.value.send(JSON.stringify(message))
+      ws.value.send(JSON.stringify(message))
     }
   }
   
   // 更新实时考试数据
   const updateRealTimeExamData = (data) => {
-    // 根据WebSocket推送的心跳数据更新考试信息
     const examData = {
       examId: data.examId,
-      examTitle: `考试场次 ${data.examId}`,
-      paperTitle: `试卷标题 ${data.examId}`,
+      examTitle: data.examTitle || `考试场次 ${data.examId}`,
+      paperTitle: data.paperTitle || `试卷标题 ${data.examId}`,
       students: data.timers || []
     }
     
@@ -212,28 +200,25 @@ export const useWebSocketStore = defineStore('websocket', () => {
   const updateStudentStart = (data) => {
     const index = realTimeExamData.value.findIndex(item => item.examId === data.examId)
     if (index >= 0) {
-      // 添加新学生到学生列表
       const newStudent = {
         studentId: data.studentId,
-        studentName: `学生${data.studentId}`,
-        className: '未知班级',
+        studentName: data.studentName || `学生${data.studentId}`,
+        className: data.className || '未知班级',
         timeUsed: 0,
         startTime: data.startTime,
         isActive: true
       }
       realTimeExamData.value[index].students.push(newStudent)
-      // 重新计算在线人数
       realTimeExamData.value[index].onlineCount = realTimeExamData.value[index].students.filter(s => s.isActive).length
     } else {
-      // 如果没有该考试，创建一个新的
       realTimeExamData.value.push({
         examId: data.examId,
-        examTitle: `考试场次 ${data.examId}`,
-        paperTitle: `试卷标题 ${data.examId}`,
+        examTitle: data.examTitle || `考试场次 ${data.examId}`,
+        paperTitle: data.paperTitle || `试卷标题 ${data.examId}`,
         students: [{
           studentId: data.studentId,
-          studentName: `学生${data.studentId}`,
-          className: '未知班级',
+          studentName: data.studentName || `学生${data.studentId}`,
+          className: data.className || '未知班级',
           timeUsed: 0,
           startTime: data.startTime,
           isActive: true
@@ -247,13 +232,11 @@ export const useWebSocketStore = defineStore('websocket', () => {
   const updateStudentEnd = (data) => {
     const index = realTimeExamData.value.findIndex(item => item.examId === data.examId)
     if (index >= 0) {
-      // 查找对应的学生并更新状态
       const studentIndex = realTimeExamData.value[index].students.findIndex(s => s.studentId === data.studentId)
       if (studentIndex >= 0) {
         realTimeExamData.value[index].students[studentIndex].isActive = false
         realTimeExamData.value[index].students[studentIndex].timeUsed = data.timeUsed
       }
-      // 重新计算在线人数
       realTimeExamData.value[index].onlineCount = realTimeExamData.value[index].students.filter(s => s.isActive).length
     }
   }
@@ -269,35 +252,6 @@ export const useWebSocketStore = defineStore('websocket', () => {
     }
   }
   
-  // 更新实时数据
-  const updateRealTimeData = (data) => {
-    if (!data || !data.type) return
-    
-    if (data.type === 'update') {
-      // 检查数据完整性
-      if (!data.examId || !data.studentId || typeof data.timeUsed !== 'number') {
-        console.warn('实时数据不完整:', data)
-        return
-      }
-      
-      // 安全地更新实时数据数组
-      const index = realTimeData.value.findIndex(item => 
-        item.examId === data.examId && item.studentId === data.studentId
-      )
-      
-      if (index >= 0) {
-        realTimeData.value[index].timeUsed = data.timeUsed
-      } else {
-        realTimeData.value.push({
-          examId: data.examId,
-          studentId: data.studentId,
-          timeUsed: data.timeUsed,
-          startTime: data.startTime
-        })
-      }
-    }
-  }
-  
   // 刷新实时数据
   const refreshRealTimeData = () => {
     requestCurrentExamStatus()
@@ -306,7 +260,7 @@ export const useWebSocketStore = defineStore('websocket', () => {
   
   // 广播消息功能
   const broadcastMessage = (messageData) => {
-    if (!realTimeWs.value || realTimeWs.value.readyState !== WebSocket.OPEN) {
+    if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
       ElMessage.error('WebSocket连接未建立，无法发送消息')
       return false
     }
@@ -316,7 +270,7 @@ export const useWebSocketStore = defineStore('websocket', () => {
         type: 'broadcast',
         ...messageData
       }
-      realTimeWs.value.send(JSON.stringify(message))
+      ws.value.send(JSON.stringify(message))
       ElMessage.success('消息广播成功')
       return true
     } catch (error) {
@@ -326,20 +280,116 @@ export const useWebSocketStore = defineStore('websocket', () => {
     }
   }
   
-  // 关闭所有WebSocket连接
-  const closeAllConnections = () => {
-    if (ws.value) {
-      ws.value.close()
+  // 发送暂停考试消息
+  const pauseExam = (examId) => {
+    if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
+      ElMessage.error('WebSocket连接未建立')
+      return false
     }
-    if (realTimeWs.value) {
-      realTimeWs.value.close()
+    
+    try {
+      const message = {
+        type: 'pause',
+        examId: examId
+      }
+      ws.value.send(JSON.stringify(message))
+      ElMessage.success('暂停考试消息已发送')
+      return true
+    } catch (error) {
+      console.error('发送暂停考试消息失败:', error)
+      ElMessage.error('发送暂停考试消息失败')
+      return false
     }
-    isWebSocketConnected.value = false
-    isRealTimeConnected.value = false
   }
+  
+  // 发送恢复考试消息
+  const resumeExam = (examId) => {
+    if (!ws.value || ws.value.readyState !== WebSocket.OPEN) {
+      ElMessage.error('WebSocket连接未建立')
+      return false
+    }
+    
+    try {
+      const message = {
+        type: 'resume',
+        examId: examId
+      }
+      ws.value.send(JSON.stringify(message))
+      ElMessage.success('恢复考试消息已发送')
+      return true
+    } catch (error) {
+      console.error('发送恢复考试消息失败:', error)
+      ElMessage.error('发送恢复考试消息失败')
+      return false
+    }
+  }
+  
+  // 显示通知
+  const showNotification = (title, message, type = 'info') => {
+    ElNotification({
+      title,
+      message,
+      type,
+      duration: 5000,
+      position: 'top-right'
+    })
+  }
+  
+  // 关闭WebSocket连接
+  const closeConnection = () => {
+    if (ws.value) {
+      ws.value.close(1000, '用户主动关闭')
+      ws.value = null
+    }
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    isConnected.value = false
+    retryCount.value = 0
+    messageHandlers.clear()
+  }
+  
+  // 发送WebSocket消息
+  const sendMessage = (message) => {
+    if (ws.value && ws.value.readyState === WebSocket.OPEN) {
+      ws.value.send(JSON.stringify(message))
+      return true
+    }
+    console.warn('WebSocket未连接，无法发送消息')
+    return false
+  }
+  
+  // 注册消息处理器
+  const registerMessageHandler = (key, handler) => {
+    messageHandlers.set(key, handler)
+  }
+  
+  // 移除消息处理器
+  const removeMessageHandler = (key) => {
+    messageHandlers.delete(key)
+  }
+  
+  // 兼容性方法 - 保持向后兼容
+  const initRealTimeDisplay = () => {
+    initWebSocket()
+  }
+  
+  const initRealTimeExamData = () => {
+    initWebSocket()
+  }
+  
+  const closeAllConnections = () => {
+    closeConnection()
+  }
+  
+  // 兼容性计算属性
+  const isWebSocketConnected = computed(() => isConnected.value)
+  const isRealTimeConnected = computed(() => isConnected.value)
   
   return {
     // 状态
+    isConnected,
     isWebSocketConnected,
     isRealTimeConnected,
     realTimeData,
@@ -347,10 +397,17 @@ export const useWebSocketStore = defineStore('websocket', () => {
     connectionStatus,
     
     // 方法
+    initWebSocket,
     initRealTimeDisplay,
     initRealTimeExamData,
     refreshRealTimeData,
     broadcastMessage,
-    closeAllConnections
+    pauseExam,
+    resumeExam,
+    closeConnection,
+    closeAllConnections,
+    sendMessage,
+    registerMessageHandler,
+    removeMessageHandler
   }
 })

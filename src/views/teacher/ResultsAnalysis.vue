@@ -17,11 +17,6 @@
         <template #header>
           <div class="card-header">
             <h3>统计分析</h3>
-            <div class="real-time-indicator">
-              <el-tag :type="websocketStore.isWebSocketConnected ? 'success' : 'danger'" size="small">
-                {{ websocketStore.isWebSocketConnected ? '实时数据已连接' : '实时数据已断开' }}
-              </el-tag>
-            </div>
           </div>
         </template>
         
@@ -134,12 +129,7 @@
         <template #header>
           <div class="card-header">
             <h3>实时考试信息</h3>
-            <div class="real-time-controls">
-              <el-button type="primary" size="small" @click="refreshRealTimeData">刷新</el-button>
-              <el-tag :type="websocketStore.isRealTimeConnected ? 'success' : 'danger'" size="small">
-                {{ websocketStore.isRealTimeConnected ? '实时数据已连接' : '实时数据已断开' }}
-              </el-tag>
-            </div>
+            <el-button type="primary" size="small" @click="websocketStore.refreshRealTimeData">刷新</el-button>
           </div>
         </template>
         
@@ -149,11 +139,6 @@
           <el-table-column prop="onlineCount" label="当前在线人数" width="150">
             <template #default="scope">
               <el-tag type="primary">{{ scope.row.onlineCount }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="详情" width="150">
-            <template #default="scope">
-              <el-button type="text" @click="viewExamStudents(scope.row)">查看明细</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -272,55 +257,13 @@
         </div>
       </el-dialog>
 
-      <!-- 考试学生明细对话框 -->
-      <el-dialog v-model="showStudentsDialog" :title="`考试场次：${selectedExam?.examTitle} - 学生明细`" width="900px">
-        <div v-if="selectedExam" class="exam-students-detail">
-          <div class="exam-info" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-            <el-descriptions :column="3" border>
-              <el-descriptions-item label="考试场次">{{ selectedExam.examTitle }}</el-descriptions-item>
-              <el-descriptions-item label="试卷标题">{{ selectedExam.paperTitle }}</el-descriptions-item>
-              <el-descriptions-item label="当前在线人数">
-                <el-tag type="primary">{{ selectedExam.onlineCount }}</el-tag>
-              </el-descriptions-item>
-            </el-descriptions>
-          </div>
-          
-          <el-table :data="selectedExam.students" style="width: 100%">
-            <el-table-column prop="studentId" label="学号" width="120" />
-            <el-table-column prop="studentName" label="学生姓名" width="150" />
-            <el-table-column prop="className" label="班级" width="150" />
-            <el-table-column prop="timeUsed" label="已用时间" width="120">
-              <template #default="scope">
-                {{ scope.row.timeUsed }}分钟
-              </template>
-            </el-table-column>
-            <el-table-column prop="startTime" label="开始时间" width="180">
-              <template #default="scope">
-                {{ new Date(scope.row.startTime * 1000).toLocaleString() }}
-              </template>
-            </el-table-column>
-            <el-table-column label="状态" width="100">
-              <template #default="scope">
-                <el-tag :type="scope.row.isActive ? 'primary' : 'success'">
-                  {{ scope.row.isActive ? '考试中' : '已结束' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="120">
-              <template #default="scope">
-                <el-button type="text" @click="sendBroadcastMessage(scope.row)">发送消息</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </el-dialog>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import * as XLSX from 'xlsx'
 import { teacherAPI } from '../../services/api'
@@ -341,8 +284,9 @@ const pageSize = ref(10)
 const total = ref(0)
 const showDetailDialog = ref(false)
 const selectedResult = ref(null)
-const showStudentsDialog = ref(false)
-const selectedExam = ref(null)
+
+// 使用WebSocket Store
+const websocketStore = useWebSocketStore()
 
 const loading = ref(false)
 const stats = ref({
@@ -610,42 +554,6 @@ const initCharts = () => {
   comparisonChart.setOption(comparisonOption)
 }
 
-// 使用WebSocket Store
-const websocketStore = useWebSocketStore()
-
-// 发送广播消息到学生
-const sendBroadcastMessage = (student) => {
-  ElMessageBox.prompt('请输入要发送给该学生的消息', '发送消息', {
-    confirmButtonText: '发送',
-    cancelButtonText: '取消',
-    inputType: 'textarea',
-    inputValidator: (value) => {
-      if (!value) {
-        return '消息内容不能为空'
-      }
-      if (value.length > 200) {
-        return '消息内容不能超过200个字符'
-      }
-      return true
-    }
-  }).then(({ value }) => {
-    const messageData = {
-      messageType: 'direct',
-      targetStudent: student.studentId,
-      title: '教师消息',
-      content: value,
-      sendMethod: 'immediate'
-    }
-    
-    const success = websocketStore.broadcastMessage(messageData)
-    if (success) {
-      ElMessage.success('消息发送成功')
-    }
-  }).catch(() => {
-    // 用户取消操作
-  })
-}
-
 // 获取数据
 const fetchData = async () => {
   loading.value = true
@@ -802,7 +710,6 @@ const watchFilters = () => {
 }
 
 // 添加监听器
-import { watch } from 'vue'
 watchFilters()
 
 // 刷新数据功能
@@ -832,6 +739,8 @@ const handleSearch = () => {
 // 初始化
 onMounted(() => {
   fetchData()
+  // 初始化WebSocket连接获取实时考试数据
+  websocketStore.initRealTimeExamData()
 })
 </script>
 
@@ -968,28 +877,6 @@ onMounted(() => {
 .question-analysis h4 {
   margin: 20px 0 15px 0;
   color: #333;
-}
-
-.real-time-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.real-time-indicator .el-tag {
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(64, 158, 255, 0.7);
-  }
-  70% {
-    box-shadow: 0 0 0 10px rgba(64, 158, 255, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(64, 158, 255, 0);
-  }
 }
 
 /* 响应式设计 */

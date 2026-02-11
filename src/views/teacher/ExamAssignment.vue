@@ -280,7 +280,11 @@ const deleteAssignment = async (assignment) => {
     await ElMessageBox.confirm(
       `确定要取消试卷 "${assignment.examTitle}" 的分配吗？`,
       '取消分配',
-      { type: 'warning' }
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消'
+      }
     )
     
     try {

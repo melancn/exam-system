@@ -50,8 +50,8 @@
               </el-col>
             </el-row>
             
-            <el-form-item v-if="studentFormData.id === 0" label="初始密码" prop="password">
-              <el-input v-model="studentFormData.password" placeholder="请输入初始密码" show-password />
+            <el-form-item label="密码" prop="password">
+              <el-input v-model="studentFormData.password" placeholder="请输入密码（编辑时留空则不修改）" />
             </el-form-item>
           </el-form>
           
@@ -83,13 +83,19 @@
           <el-input
             v-model="searchKeyword"
             placeholder="搜索学生姓名或学生账号"
-            style="width: 300px"
+            style="width: 380px"
             clearable
-          />
+            @keyup.enter="handleSearch"
+          >
+            <template #append>
+              <el-button :icon="Search" @click="handleSearch" />
+            </template>
+          </el-input>
         </div>
         
         <el-table :data="students" style="width: 100%" v-loading="loading">
-          <el-table-column prop="studentId" label="学生账号" width="120" />
+          <el-table-column prop="username" label="学生账号" width="120" />
+          <el-table-column prop="studentId" label="学号" width="120" />
           <el-table-column prop="name" label="姓名" width="120" />
           <el-table-column prop="className" label="班级" width="150" />
           <el-table-column prop="major" label="专业" width="150" />
@@ -146,7 +152,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { UploadFilled } from '@element-plus/icons-vue'
+import { UploadFilled, Search } from '@element-plus/icons-vue'
 import { teacherAPI } from '@/services/api'
 import * as XLSX from 'xlsx'
 import { validators } from '@/utils/validators'
@@ -253,9 +259,19 @@ const studentRules = {
     }
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
     {
       validator: (rule, value, callback) => {
+        // 编辑模式下密码可以为空（不修改密码）
+        if (studentFormData.id !== 0 && (!value || value.trim().length === 0)) {
+          callback()
+          return
+        }
+        // 新建模式下密码必填，且需要验证格式
+        if (studentFormData.id === 0 && (!value || value.trim().length === 0)) {
+          callback(new Error('请输入密码'))
+          return
+        }
+        // 验证密码格式
         const result = validators.validatePassword(value)
         if (!result.valid) {
           callback(new Error(result.message))
@@ -345,11 +361,18 @@ const handleStudentSubmit = async () => {
       }
     } else {
       // 编辑学生
-      await teacherAPI.updateStudent(studentFormData.id, {
+      const updateData = {
         name: studentFormData.name,
         classId: studentFormData.classId,
         major: studentFormData.major
-      })
+      }
+      
+      // 如果密码不为空，则更新密码
+      if (studentFormData.password && studentFormData.password.trim().length > 0) {
+        updateData.password = studentFormData.password
+      }
+      
+      await teacherAPI.updateStudent(studentFormData.id, updateData)
       
       ElMessage.success('学生信息更新成功')
       showStudentDialog.value = false
@@ -398,7 +421,11 @@ const deleteStudent = async (student) => {
     await ElMessageBox.confirm(
       `确定要删除学生 ${student.name} 吗？此操作不可恢复！`,
       '删除学生',
-      { type: 'warning' }
+      {
+        type: 'warning',
+        confirmButtonText: '确定',
+        cancelButtonText: '取消'
+      }
     )
     
     // 调用后端API删除
@@ -596,11 +623,17 @@ watch([currentPage, pageSize], () => {
   fetchStudents()
 })
 
-// 监听搜索关键词变化
-watch(searchKeyword, (newVal) => {
+// 搜索按钮点击事件
+const handleSearch = () => {
   currentPage.value = 1 // 重置到第一页
   fetchStudents()
-})
+}
+
+// 监听搜索关键词变化（可选：如果需要实时搜索）
+// watch(searchKeyword, (newVal) => {
+//   currentPage.value = 1 // 重置到第一页
+//   fetchStudents()
+// })
 
 // 加载班级列表
 const loadClasses = async () => {
